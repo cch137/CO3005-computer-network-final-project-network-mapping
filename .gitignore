@@ -138,10 +138,6 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# VS Code
-.vscode/
-*.code-workspace
-
 # PyCharm
 .idea/
 *.iml

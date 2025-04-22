@@ -29,7 +29,7 @@ def get_weight(char: str) -> int:
 
 def split_text_into_chunks(
     text: str, tokenizer, max_tokens: int
-) -> List[Tuple[int, str]]:
+) -> List[Tuple[int, str, int]]:
     """Split text into chunks based on separator weights and token limits.
 
     Args:
@@ -38,7 +38,7 @@ def split_text_into_chunks(
         max_tokens: Maximum number of tokens per chunk
 
     Returns:
-        List of tuples containing (start_index, chunk_text)
+        List of tuples containing (start_index, chunk_text, token_count)
     """
     if not isinstance(max_tokens, int) or max_tokens <= 0:
         raise ValueError("max_tokens must be a positive integer")
@@ -54,24 +54,27 @@ def split_text_into_chunks(
             )
         )
 
-    def optimize_chunks(chunks: List[Tuple[int, str]]) -> List[Tuple[int, str]]:
+    def optimize_chunks(
+        chunks: List[Tuple[int, str, int]],
+    ) -> List[Tuple[int, str, int]]:
         """Optimize chunks to ensure maximum token utilization."""
         if len(chunks) <= 1:
             return chunks
 
-        optimized: List[Tuple[int, str]] = []
+        optimized: List[Tuple[int, str, int]] = []
         i = 0
 
         while i < len(chunks) - 1:
-            current_start, current_text = chunks[i]
-            next_text = chunks[i + 1][1]
+            current_start, current_text, current_tokens = chunks[i]
+            next_start, next_text, next_tokens = chunks[i + 1]
 
-            combined_tokens = get_token_count(current_text + next_text)
+            # Calculate token count for combined text only if needed
+            combined_text = current_text + next_text
+            combined_tokens = get_token_count(combined_text)
 
             # If combining both chunks doesn't exceed max_tokens, merge them
             if combined_tokens <= max_tokens:
-                combined_text = current_text + next_text
-                optimized.append((current_start, combined_text))
+                optimized.append((current_start, combined_text, combined_tokens))
                 i += 2  # Skip next chunk since we've merged it
             else:
                 # Check if we can redistribute tokens more efficiently
@@ -94,24 +97,34 @@ def split_text_into_chunks(
                             potential_first = current_text[:split_pos]
                             potential_next = current_text[split_pos:] + next_text
 
+                            # Get token counts for potential chunks
+                            potential_first_tokens = get_token_count(potential_first)
+                            potential_next_tokens = get_token_count(potential_next)
+
                             # Ensure both chunks are valid
                             if (
-                                get_token_count(potential_first) <= max_tokens
-                                and get_token_count(potential_next) <= max_tokens
+                                potential_first_tokens <= max_tokens
+                                and potential_next_tokens <= max_tokens
                             ):
                                 best_split_idx = split_pos
                                 best_split_weight = char_weight
 
                 if best_split_idx is not None:
                     # Redistribute content between chunks
-                    optimized.append((current_start, current_text[:best_split_idx]))
+                    first_part = current_text[:best_split_idx]
+                    first_tokens = get_token_count(first_part)
+                    optimized.append((current_start, first_part, first_tokens))
+
+                    second_part = current_text[best_split_idx:] + next_text
+                    second_tokens = get_token_count(second_part)
                     chunks[i + 1] = (
                         current_start + best_split_idx,
-                        current_text[best_split_idx:] + next_text,
+                        second_part,
+                        second_tokens,
                     )
                 else:
                     # Cannot optimize further, keep original chunk
-                    optimized.append((current_start, current_text))
+                    optimized.append((current_start, current_text, current_tokens))
                 i += 1
 
         # Don't forget the last chunk if we didn't merge it
@@ -125,7 +138,7 @@ def split_text_into_chunks(
 
     def split_by_weight(
         text: str, weight: int, start_idx: int
-    ) -> List[Tuple[int, str]]:
+    ) -> List[Tuple[int, str, int]]:
         """Recursively split text at the given weight level."""
         chunks = []
         current_pos = 0
@@ -154,7 +167,9 @@ def split_text_into_chunks(
                     # If adding this segment exceeds max_tokens, finalize current chunk
                     if current_chunk:
                         chunk_text = "".join(current_chunk)
-                        chunks.append((current_chunk_start, chunk_text))
+                        chunks.append(
+                            (current_chunk_start, chunk_text, current_chunk_tokens)
+                        )
                         current_chunk_start += len(chunk_text)
                         current_chunk = []
                         current_chunk_tokens = 0
@@ -186,10 +201,13 @@ def split_text_into_chunks(
 
             if current_chunk_tokens + remaining_tokens <= max_tokens:
                 current_chunk.append(remaining)
+                current_chunk_tokens += remaining_tokens
             else:
                 if current_chunk:
                     chunk_text = "".join(current_chunk)
-                    chunks.append((current_chunk_start, chunk_text))
+                    chunks.append(
+                        (current_chunk_start, chunk_text, current_chunk_tokens)
+                    )
                     current_chunk_start += len(chunk_text)
 
                 if remaining_tokens > max_tokens and weight > NO_WEIGHT:
@@ -198,7 +216,7 @@ def split_text_into_chunks(
                     )
                     chunks.extend(sub_chunks)
                 elif remaining_tokens <= max_tokens:
-                    chunks.append((current_chunk_start, remaining))
+                    chunks.append((current_chunk_start, remaining, remaining_tokens))
                 else:
                     raise ValueError(
                         "Cannot split remaining text within token limit; "
@@ -208,7 +226,7 @@ def split_text_into_chunks(
         # Add final chunk if exists
         if current_chunk:
             chunk_text = "".join(current_chunk)
-            chunks.append((current_chunk_start, chunk_text))
+            chunks.append((current_chunk_start, chunk_text, current_chunk_tokens))
 
         return chunks
 

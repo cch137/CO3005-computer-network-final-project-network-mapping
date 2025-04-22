@@ -26,14 +26,7 @@ def tokenize(s: str):
     )
 
 
-def load_texts():
-    for i in range(1, 7):
-        with open(f"./assets/texts/{str(i).zfill(8)}.txt", "r", encoding="utf-8") as f:
-            yield f.read()
-
-
-def load_journey_to_the_west():
-    dirname = "./assets/journey-to-the-west/"
+def load_text_assets(dirname: str):
     files = os.listdir(dirname)
 
     for file in files:
@@ -44,8 +37,8 @@ def load_journey_to_the_west():
 
 def text_to_embeddings(text: str):
     return [
-        (index, chunk, model.encode(chunk))
-        for (index, chunk) in split_text_into_chunks(
+        (index, chunk, token_count, model.encode(chunk))
+        for (index, chunk, token_count) in split_text_into_chunks(
             text, tokenizer, PARAPHRASE_MINILM_MAX_TOKENS
         )
     ]
@@ -54,14 +47,15 @@ def text_to_embeddings(text: str):
 def main():
     min_token = 1000
     i = 0
-    # for sentence in load_texts():
-    for sentence in load_journey_to_the_west():
+    dirname = "./assets/small-texts/"
+    # dirname = "./assets/big-texts/"
+    # dirname = "./assets/journey-to-the-west/"
+    for text in load_text_assets(dirname):
         i += 1
-        print(f"loaded file ({i})", type(sentence), len(sentence))
-        chunks = text_to_embeddings(sentence)
+        print(f"loaded file ({i})", type(text), len(text))
+        chunks = text_to_embeddings(text)
         print(f"splitted file ({i})")
-        for index, chunk, embedding in chunks:
-            token_count = len(tokenize(chunk))
+        for index, chunk, token_count, embedding in chunks:
             print(f"({index},{token_count})", end="")
             print("segment:", chunk)
             if token_count < min_token:

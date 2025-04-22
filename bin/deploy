@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Activate the virtual environment
+source .venv/bin/activate
+
+# Find and kill any process occupying port 6502
+PID=$(sudo netstat -lpn | grep ':6502' | awk '{print $7}' | cut -d'/' -f1)
+
+if [ -n "$PID" ]; then
+  echo "Killing process with PID: $PID"
+  sudo kill -9 $PID
+  # Make sure all gunicorn processes are also killed
+  sudo pkill -9 gunicorn
+fi
+
+# Create logs directory if it doesn't exist
+mkdir -p logs
+
+# Get the current timestamp for the log filename
+timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
+
+# Run gunicorn in the background, redirect output to a log file in the logs folder
+nohup gunicorn --config gunicorn_config.py app:app > "logs/gunicorn_$timestamp.log" 2>&1 &
+
+echo "Gunicorn is running in the background. Logs are being written to logs/gunicorn_$timestamp.log."
+
+# Exit the script
+exit 0

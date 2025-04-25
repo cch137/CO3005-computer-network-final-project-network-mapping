@@ -7,7 +7,8 @@ logger.info("importing modules...")
 from typing import List, Tuple
 from sentence_transformers import SentenceTransformer
 from constants import PARAPHRASE_MINILM_MAX_TOKENS
-from text_splitter import split_text_into_chunks
+from text_splitter import split_text_into_chunks as raw_split_text_into_chunks
+
 
 logger.info("loading model...")
 
@@ -30,7 +31,13 @@ def load_text_assets(dirname: str):
             yield f.read()
 
 
-def text_to_embeddings(text: str) -> List[Tuple[int, str, int, List[float]]]:
+def split_text_to_chunks(text: str, optimize=True):
+    return raw_split_text_into_chunks(
+        text, tokenizer, PARAPHRASE_MINILM_MAX_TOKENS, optimize
+    )
+
+
+def text_to_embeddings(text: str):
     """
     Convert text into embeddings by splitting it into chunks and encoding each chunk.
 
@@ -38,15 +45,16 @@ def text_to_embeddings(text: str) -> List[Tuple[int, str, int, List[float]]]:
         text (str): The input text to be converted into embeddings.
 
     Returns:
-        List[Tuple[int, str, int, torch.Tensor]]: A list of tuples where each tuple contains:
+        Generator[Tuple[int, str, int, torch.Tensor]]: A list of tuples where each tuple contains:
             - index (int): The index of the chunk start at.
             - chunk (str): The text chunk.
             - token_count (int): The number of tokens in the chunk.
             - embedding (torch.Tensor): The embedding vector for the chunk.
     """
-    return [
-        (index, chunk, token_count, model.encode(chunk).tolist())
-        for (index, chunk, token_count) in split_text_into_chunks(
-            text, tokenizer, PARAPHRASE_MINILM_MAX_TOKENS
+    for index, chunk, token_count in split_text_to_chunks(text):
+        yield (
+            index,
+            chunk,
+            token_count,
+            model.encode(chunk).tolist(),
         )
-    ]

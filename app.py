@@ -16,7 +16,7 @@ def dumped_text_to_embeddings(text: str) -> bytes:
     Returns:
         bytes: CBOR serialized embeddings
     """
-    return cbor2.dumps(text_to_embeddings(text))
+    return cbor2.dumps(list(text_to_embeddings(text)))
 
 
 @app.route("/em/", methods=["POST"])

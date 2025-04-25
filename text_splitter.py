@@ -28,7 +28,7 @@ def get_weight(char: str) -> int:
 
 
 def split_text_into_chunks(
-    text: str, tokenizer, max_tokens: int
+    text: str, tokenizer, max_tokens: int, optimize=True
 ) -> List[Tuple[int, str, int]]:
     """Split text into chunks based on separator weights and token limits.
 
@@ -233,5 +233,8 @@ def split_text_into_chunks(
     # First split with original algorithm
     initial_chunks = split_by_weight(text, PARAGRAPH_SEPARATOR_WEIGHT, 0)
 
-    # Then optimize to ensure maximum token utilization
-    return optimize_chunks(initial_chunks)
+    if optimize:
+        # Then optimize to ensure maximum token utilization
+        return optimize_chunks(initial_chunks)
+
+    return initial_chunks

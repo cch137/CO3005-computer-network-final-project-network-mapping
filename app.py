@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, abort
+from flask import Flask, request, Response, jsonify, abort
 import cbor2
 from embeddings import text_to_embeddings
 from constants import PORT
@@ -67,8 +67,70 @@ def method_not_allowed():
     abort(405, description="Method Not Allowed")
 
 
+# ---------- CN-Project API endpoints ----------
+
+
+@app.route("/cn-project/next-pages", methods=["GET"])
+def get_next_pages():
+    """
+    Mock endpoint for fetching next pages.
+    Returns:
+        JSON: List of URLs as links
+    """
+    return jsonify(
+        {"links": ["https://example.com/page1", "https://example.com/page2"]}
+    )
+
+
+@app.route("/cn-project/next-nodes", methods=["GET"])
+def get_next_nodes():
+    """
+    Mock endpoint for fetching next nodes.
+    Returns:
+        JSON: List of domains
+    """
+    return jsonify({"domains": ["example.com", "another.com"]})
+
+
+@app.route("/cn-project/store-pages", methods=["POST"])
+def store_pages():
+    """
+    Mock endpoint for storing page metadata.
+    Accepts JSON or form URL-encoded data.
+
+    Returns:
+        JSON: Success status
+    """
+    content_type = request.headers.get("Content-Type", "")
+    if not (
+        content_type.startswith("application/json")
+        or content_type.startswith("application/x-www-form-urlencoded")
+    ):
+        abort(415, description="Unsupported Content-Type")
+    return jsonify({"success": True})
+
+
+@app.route("/cn-project/store-nodes", methods=["POST"])
+def store_nodes():
+    """
+    Mock endpoint for storing node data.
+    Accepts JSON or form URL-encoded data.
+
+    Returns:
+        JSON: Success status
+    """
+    content_type = request.headers.get("Content-Type", "")
+    if not (
+        content_type.startswith("application/json")
+        or content_type.startswith("application/x-www-form-urlencoded")
+    ):
+        abort(415, description="Unsupported Content-Type")
+    return jsonify({"success": True})
+
+
 @app.errorhandler(400)
 @app.errorhandler(405)
+@app.errorhandler(415)
 @app.errorhandler(500)
 def handle_error(error):
     """
@@ -80,7 +142,7 @@ def handle_error(error):
     Returns:
         Response: JSON error response
     """
-    return {"error": str(error.description), "status": error.code}, error.code
+    return jsonify({"error": str(error.description), "status": error.code}), error.code
 
 
 if __name__ == "__main__":

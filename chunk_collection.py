@@ -192,7 +192,7 @@ class ChunkCollection:
 
 
 if __name__ == "__main__":
-    chunks = ChunkCollection("chunks-test")
+    chunks = ChunkCollection("chunks_test")
 
     def menu():
         print("\nvector_db menu:")

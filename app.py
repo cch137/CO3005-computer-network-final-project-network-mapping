@@ -1,4 +1,6 @@
 from flask import Flask, request, Response, jsonify, abort
+from pydantic import BaseModel, HttpUrl
+from typing import List
 import cbor2
 from embeddings import text_to_embeddings
 from constants import PORT
@@ -19,7 +21,7 @@ def dumped_text_to_embeddings(text: str) -> bytes:
     return cbor2.dumps(list(text_to_embeddings(text)))
 
 
-@app.route("/em/", methods=["POST"])
+@app.route("/vectors", methods=["POST"])
 def handle_embedding():
     """
     Handle POST requests to generate text embeddings.
@@ -59,14 +61,6 @@ def handle_embedding():
         abort(500, description=f"Internal Server Error: {str(e)}")
 
 
-@app.route("/em/", methods=["GET", "HEAD"])
-def method_not_allowed():
-    """
-    Return 405 Method Not Allowed for GET and HEAD requests.
-    """
-    abort(405, description="Method Not Allowed")
-
-
 # ---------- CN-Project API endpoints ----------
 
 
@@ -92,6 +86,47 @@ def get_next_nodes():
     return jsonify({"domains": ["example.com", "another.com"]})
 
 
+pages_schema = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "url": {"type": "string"},
+            "domain": {"type": "string"},
+            "title": {"type": "string"},
+            "description": {"type": "string"},
+            "markdown": {"type": "string"},
+            "delay_time": {"type": "string"},
+            "links": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": [
+            "url",
+            "domain",
+            "title",
+            "description",
+            "markdown",
+            "delay_time",
+            "links",
+        ],
+        "additionalProperties": False,
+    },
+}
+
+
+class Item(BaseModel):
+    url: HttpUrl
+    domain: str
+    title: str
+    description: str
+    markdown: str
+    delay_time: str
+    links: List[HttpUrl]
+
+
+class Items(BaseModel):
+    items: List[Item]
+
+
 @app.route("/cn-project/store-pages", methods=["POST"])
 def store_pages():
     """
@@ -102,11 +137,9 @@ def store_pages():
         JSON: Success status
     """
     content_type = request.headers.get("Content-Type", "")
-    if not (
-        content_type.startswith("application/json")
-        or content_type.startswith("application/x-www-form-urlencoded")
-    ):
+    if not (content_type.startswith("application/json")):
         abort(415, description="Unsupported Content-Type")
+    pages = request.json
     return jsonify({"success": True})
 
 
@@ -120,15 +153,14 @@ def store_nodes():
         JSON: Success status
     """
     content_type = request.headers.get("Content-Type", "")
-    if not (
-        content_type.startswith("application/json")
-        or content_type.startswith("application/x-www-form-urlencoded")
-    ):
+    if not (content_type.startswith("application/json")):
         abort(415, description="Unsupported Content-Type")
     return jsonify({"success": True})
 
 
 @app.errorhandler(400)
+@app.errorhandler(401)
+@app.errorhandler(404)
 @app.errorhandler(405)
 @app.errorhandler(415)
 @app.errorhandler(500)
@@ -142,7 +174,10 @@ def handle_error(error):
     Returns:
         Response: JSON error response
     """
-    return jsonify({"error": str(error.description), "status": error.code}), error.code
+    return (
+        jsonify({"status": error.code, "error": str(error.description)}),
+        error.code,
+    )
 
 
 if __name__ == "__main__":

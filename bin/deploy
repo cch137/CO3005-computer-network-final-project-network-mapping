@@ -24,7 +24,7 @@ nohup gunicorn --config gunicorn_config.py app:app > "logs/gunicorn_$timestamp.l
 
 echo "Gunicorn is running in the background. Logs are being written to logs/gunicorn_$timestamp.log."
 
-docker-compose -f /home/cch137/services/milvus/docker-compose.yml up
+docker-compose -f /home/cch137/services/milvus/docker-compose.yml up -d
 
 # Exit the script
 exit 0

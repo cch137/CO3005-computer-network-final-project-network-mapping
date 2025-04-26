@@ -1,0 +1,87 @@
+#!/bin/bash
+
+# Script Name: generate_requirements.sh
+
+# Check if a virtual environment path is provided, otherwise default to .venv
+VENV_PATH=${1:-".venv"}
+
+# Check if the virtual environment exists
+if [ ! -d "$VENV_PATH" ]; then
+    echo "Error: Virtual environment path $VENV_PATH does not exist!"
+    exit 1
+fi
+
+# Check if pip is available in the virtual environment
+PIP_PATH="$VENV_PATH/bin/pip"
+if [ ! -f "$PIP_PATH" ]; then
+    echo "Error: Could not find pip in the virtual environment!"
+    exit 1
+fi
+
+# Check if python is available in the virtual environment
+PYTHON_PATH="$VENV_PATH/bin/python"
+if [ ! -f "$PYTHON_PATH" ]; then
+    echo "Error: Could not find python in the virtual environment!"
+    exit 1
+fi
+
+# Temporary file to store library names
+TEMP_FILE=$(mktemp)
+BUILTIN_TEMP_FILE=$(mktemp)
+
+# Get Python version from the virtual environment
+PYTHON_VERSION=$("$PYTHON_PATH" --version 2>&1 | awk '{print $2}')
+echo "Detected Python version: $PYTHON_VERSION"
+
+# Get list of built-in modules for the current Python version
+echo "Retrieving list of built-in modules for Python $PYTHON_VERSION..."
+"$PYTHON_PATH" -c "import sys; print('\n'.join(sys.builtin_module_names))" > "$BUILTIN_TEMP_FILE"
+echo "Built-in modules list retrieved."
+
+# Find all .py files and extract imported libraries
+echo "Analyzing Python files for import statements..."
+find . -type f -name "*.py" -not -path "*/$VENV_PATH/*" | while read -r file; do
+    # Extract library names from import and from ... import statements
+    grep -E "^[[:space:]]*(import|from)[[:space:]]+[a-zA-Z0-9_]+" "$file" | \
+    sed -E 's/^[[:space:]]*(import|from)[[:space:]]+//' | \
+    sed -E 's/[[:space:]]+.*$//' | \
+    sed -E 's/\..*$//' | \
+    sort | uniq
+done | sort | uniq > "$TEMP_FILE"  # Remove duplicates across all files
+
+# Check if any libraries were found
+if [ ! -s "$TEMP_FILE" ]; then
+    echo "No imported libraries found!"
+    rm "$TEMP_FILE"
+    rm "$BUILTIN_TEMP_FILE"
+    exit 0
+fi
+
+# Read library names and check their versions
+echo "Checking library versions in the virtual environment..."
+REQUIREMENTS_FILE="requirements.txt"
+> "$REQUIREMENTS_FILE"  # Clear or create requirements.txt
+
+while IFS= read -r lib; do
+    if [ -n "$lib" ]; then
+        # Check if the library is a built-in module
+        if grep -q "^$lib$" "$BUILTIN_TEMP_FILE"; then
+            echo "Skipped $lib (built-in module for Python $PYTHON_VERSION)"
+        else
+            # Use pip show to get the library version
+            version=$("$PIP_PATH" show "$lib" 2>/dev/null | grep -i "^Version:" | cut -d' ' -f2)
+            if [ -n "$version" ]; then
+                echo "$lib==$version" >> "$REQUIREMENTS_FILE"
+                echo "Found $lib version $version"
+            else
+                echo "Skipped $lib (version not found in virtual environment)"
+            fi
+        fi
+    fi
+done < "$TEMP_FILE"
+
+# Clean up temporary files
+rm "$TEMP_FILE"
+rm "$BUILTIN_TEMP_FILE"
+
+echo "requirements.txt file has been generated!"

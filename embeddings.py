@@ -1,10 +1,9 @@
 from logger import logger
 import os
 
-logger.info("started.")
 logger.info("importing modules...")
 
-from typing import List, Tuple
+from typing import List, Tuple, Generator, Any
 from sentence_transformers import SentenceTransformer
 from constants import PARAPHRASE_MINILM_MAX_TOKENS
 from text_splitter import split_text_into_chunks as raw_split_text_into_chunks
@@ -37,7 +36,9 @@ def split_text_to_chunks(text: str, optimize=True):
     )
 
 
-def text_to_embeddings(text: str):
+def text_to_embeddings(
+    text: str,
+) -> Generator[Tuple[int, str, int, List[float]], Any, None]:
     """
     Convert text into embeddings by splitting it into chunks and encoding each chunk.
 

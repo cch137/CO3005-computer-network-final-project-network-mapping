@@ -1,10 +1,9 @@
 import requests
-import random
 import time
 import html2text
 from bs4 import BeautifulSoup, Tag
 from urllib.parse import urljoin, urlparse, parse_qs, urlencode
-from modules.schemas import PageSchema
+from ..modules.schemas import PageSchema
 from typing import List
 import traceback
 

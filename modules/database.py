@@ -48,6 +48,7 @@ def insert_nodes(nodes: List[NodeSchema]):
                     )
                     for node in nodes
                 ],
+                fetch=True,
             )
         conn.commit()
     except Exception as e:
@@ -78,8 +79,7 @@ def insert_pages(pages: List[PageSchema]) -> Dict[str, PageSchema]:
                 """
                 INSERT INTO pages (url, domain, title, description, delay_ms, links)
                 VALUES %s
-                ON CONFLICT (uuid) DO UPDATE SET
-                    url = EXCLUDED.url,
+                ON CONFLICT (url) DO UPDATE SET
                     domain = EXCLUDED.domain,
                     title = EXCLUDED.title,
                     description = EXCLUDED.description,

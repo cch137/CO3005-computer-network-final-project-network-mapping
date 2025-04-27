@@ -191,8 +191,8 @@ class ChunkCollection:
             logger.info(f"Collection '{self.collection_name}' does not exist.")
 
 
-if __name__ == "__main__":
-    chunks = ChunkCollection("chunks_test")
+def test(name="chunks_test"):
+    chunks = ChunkCollection(name)
 
     def menu():
         print("")
@@ -234,3 +234,7 @@ if __name__ == "__main__":
             break
         else:
             print("Invalid choice. Please try again.")
+
+
+if __name__ == "__main__":
+    test()

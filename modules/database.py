@@ -1,8 +1,9 @@
 from typing import List, Dict
-from psycopg2.extras import execute_values
 from .schemas import PageSchema, NodeSchema
 from .constants import PG_USER, PG_PASSWORD
+from .logger import logger
 import psycopg2
+from psycopg2.extras import execute_values  # Added import for execute_values
 
 
 def get_pg_connection():
@@ -23,31 +24,34 @@ def insert_nodes(nodes: List[NodeSchema]):
     conn = get_pg_connection()
     try:
         with conn.cursor() as cur:
-            sql = """
-            INSERT INTO nodes (ip_addr, name, domains, neighbours)
-            VALUES %s
-            ON CONFLICT (ip_addr) DO UPDATE SET
-                name = COALESCE(EXCLUDED.name, nodes.name),
-                domains = ARRAY(
-                    SELECT DISTINCT UNNEST(nodes.domains || EXCLUDED.domains)
-                ),
-                neighbours = ARRAY(
-                    SELECT DISTINCT UNNEST(nodes.neighbours || EXCLUDED.neighbours)
-                );
-            """
-            values = [
-                (
-                    str(node.ip_addr),  # IPvAnyAddress 轉成 str
-                    node.name,
-                    node.domains,
-                    node.neighbours,
-                )
-                for node in nodes
-            ]
-            execute_values(cur, sql, values)
+            # Using execute_values for batch insertion
+            execute_values(
+                cur,
+                """
+                INSERT INTO nodes (ip_addr, name, domains, neighbours)
+                VALUES %s
+                ON CONFLICT (ip_addr) DO UPDATE SET
+                    name = COALESCE(EXCLUDED.name, nodes.name),
+                    domains = ARRAY(
+                        SELECT DISTINCT UNNEST(nodes.domains || EXCLUDED.domains)
+                    ),
+                    neighbours = ARRAY(
+                        SELECT DISTINCT UNNEST(nodes.neighbours || EXCLUDED.neighbours)
+                    )
+                """,
+                [
+                    (
+                        str(node.ip_addr),  # IPvAnyAddress to str
+                        node.name,
+                        node.domains,
+                        node.neighbours,
+                    )
+                    for node in nodes
+                ],
+            )
         conn.commit()
     except Exception as e:
-        print("Error inserting nodes:", e)
+        logger.error(f"Error inserting nodes: {e}")
         conn.rollback()
     finally:
         conn.close()
@@ -65,44 +69,48 @@ def insert_pages(pages: List[PageSchema]) -> Dict[str, PageSchema]:
     result = {}
     try:
         with conn.cursor() as cur:
-            sql = """
-            INSERT INTO pages (url, domain, title, description,
-                               markdown, delay_time, links)
-            VALUES %s
-            ON CONFLICT (url) DO UPDATE SET
-                domain = EXCLUDED.domain,
-                title = EXCLUDED.title,
-                description = EXCLUDED.description,
-                markdown = EXCLUDED.markdown,
-                delay_time = EXCLUDED.delay_time,
-                links = EXCLUDED.links
-            RETURNING uuid, url;
-            """
-            values = [
-                (
-                    str(page.url),
-                    page.domain,
-                    page.title,
-                    page.description,
-                    page.markdown,
-                    page.delay_time,
-                    [str(link) for link in page.links],  # HttpUrl 轉成 str
-                )
-                for page in pages
-            ]
-            # 執行批量插入並獲取回傳的 UUID 和 URL
-            execute_values(cur, sql, values, fetch=True)
-            # 從 cursor 中提取 UUID 和 URL
-            for uuid, url in cur.fetchall():
-                # 找到對應的 PageSchema 物件
-                for page in pages:
-                    if str(page.url) == url:
-                        result[uuid] = page
-                        break
+            # Create a mapping of URLs to pages
+            url_to_page = {str(page.url): page for page in pages}
+
+            # Using execute_values with a RETURNING clause
+            execute_result = execute_values(
+                cur,
+                """
+                INSERT INTO pages (url, domain, title, description, delay_ms, links)
+                VALUES %s
+                ON CONFLICT (uuid) DO UPDATE SET
+                    url = EXCLUDED.url,
+                    domain = EXCLUDED.domain,
+                    title = EXCLUDED.title,
+                    description = EXCLUDED.description,
+                    delay_ms = EXCLUDED.delay_ms,
+                    links = EXCLUDED.links
+                RETURNING uuid, url
+                """,
+                [
+                    (
+                        str(page.url),
+                        page.domain,
+                        page.title,
+                        page.description,
+                        page.delay_ms,
+                        [str(link) for link in page.links],  # HttpUrl to str
+                    )
+                    for page in pages
+                ],
+                fetch=True,  # This will return the results
+            )
+
+            # Process the returned rows
+            for row in execute_result:
+                uuid, url = row
+                if url in url_to_page:
+                    result[uuid] = url_to_page[url]
+
         conn.commit()
         return result
     except Exception as e:
-        print("Error inserting pages:", e)
+        logger.error(f"Error inserting pages: {e}")
         conn.rollback()
         return {}
     finally:
@@ -118,7 +126,7 @@ def get_top_unvisited_urls(limit: int = 10):
         limit (int): Number of top URLs to return.
 
     Returns:
-        List of tuples: [(url, count), ...]
+        List of URLs (not tuples).
     """
     sql = """
         WITH all_links AS (
@@ -129,7 +137,7 @@ def get_top_unvisited_urls(limit: int = 10):
             FROM all_links
             GROUP BY link_url
         )
-        SELECT link_url, cnt
+        SELECT link_url
         FROM link_counts
         WHERE link_url NOT IN (SELECT url FROM pages)
         ORDER BY cnt DESC
@@ -139,10 +147,10 @@ def get_top_unvisited_urls(limit: int = 10):
     try:
         with conn.cursor() as cur:
             cur.execute(sql, (limit,))
-            results = cur.fetchall()
+            results = [row[0] for row in cur.fetchall()]  # Extract just the URLs
         return results
     except Exception as e:
-        print("Error fetching top unvisited URLs:", e)
+        logger.error(f"Error fetching top unvisited URLs: {e}")
         return []
     finally:
         conn.close()
@@ -157,7 +165,7 @@ def get_top_unvisited_domains(limit: int = 10):
         limit (int): Number of top domains to return.
 
     Returns:
-        List of tuples: [(domain, count), ...]
+        List of domains (not tuples).
     """
     sql = """
         WITH all_links AS (
@@ -172,7 +180,7 @@ def get_top_unvisited_domains(limit: int = 10):
             FROM link_domains
             GROUP BY domain
         )
-        SELECT domain, cnt
+        SELECT domain
         FROM domain_counts
         WHERE domain NOT IN (
             SELECT unnest(domains) FROM nodes
@@ -184,10 +192,10 @@ def get_top_unvisited_domains(limit: int = 10):
     try:
         with conn.cursor() as cur:
             cur.execute(sql, (limit,))
-            results = cur.fetchall()
+            results = [row[0] for row in cur.fetchall()]  # Extract just the domains
         return results
     except Exception as e:
-        print("Error fetching top unvisited domains:", e)
+        logger.error(f"Error fetching top unvisited domains: {e}")
         return []
     finally:
         conn.close()

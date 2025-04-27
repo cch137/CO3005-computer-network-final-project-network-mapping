@@ -1,11 +1,10 @@
 from flask import Flask, request, Response, jsonify, abort
-from threading import Thread
 import cbor2
 from pydantic import ValidationError
-from typing import Dict
 from modules.embeddings import text_to_embeddings
 from modules.schemas import NodeSchema, PageSchema
 from modules.collection import ChunkCollection
+from modules.logger import logger
 from modules.database import (
     insert_pages,
     insert_nodes,
@@ -28,6 +27,11 @@ def dumped_text_to_embeddings(text: str) -> bytes:
         CBOR-serialized embeddings as bytes.
     """
     return cbor2.dumps(list(text_to_embeddings(text)))
+
+
+@app.route("/")
+def handle_home():
+    return Response("OK", content_type="text/plain", status=200)
 
 
 @app.route("/vectors", methods=["POST"])
@@ -69,7 +73,7 @@ def handle_embedding():
 
 # ---------- CN-Project API Endpoints ----------
 
-chunks = ChunkCollection("chunks_test")
+chunks = ChunkCollection("chunks")
 
 
 @app.route("/cn-project/next-pages", methods=["GET"])
@@ -121,23 +125,14 @@ def store_pages():
 
     inserted_pages = insert_pages(pages)
 
-    def insert_chunks_in_background(inserted_pages: Dict[str, PageSchema]) -> None:
-        """
-        Inserts page content into the chunks collection in the background.
-
-        Args:
-            inserted_pages: Dictionary mapping page UUIDs to PageSchema objects.
-        """
+    try:
+        return jsonify({"success": True})
+    finally:
         for page_uuid, page in inserted_pages.items():
             try:
                 chunks.write_content(page_uuid, page.markdown)
             except Exception as e:
-                app.logger.error(
-                    f"Failed to insert content for page {page_uuid}: {str(e)}"
-                )
-
-    Thread(target=insert_chunks_in_background, args=(inserted_pages,)).start()
-    return jsonify({"success": True})
+                logger.error(f"Failed to insert content for page {page_uuid}: {str(e)}")
 
 
 @app.route("/cn-project/store-nodes", methods=["POST"])

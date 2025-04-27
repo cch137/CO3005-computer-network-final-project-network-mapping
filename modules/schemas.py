@@ -8,7 +8,7 @@ class PageSchema(BaseModel):
     title: str
     description: str
     markdown: str
-    delay_time: str
+    delay_ms: int
     links: List[HttpUrl]
 
 

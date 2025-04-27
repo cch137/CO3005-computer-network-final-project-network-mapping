@@ -5,8 +5,9 @@ logger.info("importing modules...")
 
 from typing import List, Tuple, Generator, Any
 from sentence_transformers import SentenceTransformer
-from constants import PARAPHRASE_MINILM_MAX_TOKENS
-from text_splitter import split_text_into_chunks as raw_split_text_into_chunks
+
+from .constants import PARAPHRASE_MINILM_MAX_TOKENS
+from .text_splitter import split_text_into_chunks as raw_split_text_into_chunks
 
 
 logger.info("loading model...")

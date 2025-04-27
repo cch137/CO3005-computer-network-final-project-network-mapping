@@ -1,7 +1,5 @@
 #!/bin/bash
-
 # Script Name: generate_requirements.sh
-
 # Check if a virtual environment path is provided, otherwise default to .venv
 VENV_PATH=${1:-".venv"}
 
@@ -25,6 +23,44 @@ if [ ! -f "$PYTHON_PATH" ]; then
     exit 1
 fi
 
+# -----------------------------------------------------------------------------
+# Mapping table: module name  ->  package name on PyPI
+# Add more pairs here when you meet other mismatches.
+# -----------------------------------------------------------------------------
+declare -A MODULE_TO_PACKAGE=(
+    ["bs4"]="beautifulsoup4"
+    ["yaml"]="PyYAML"
+    ["cv2"]="opencv-python"
+    ["sklearn"]="scikit-learn"
+    ["PIL"]="Pillow"
+    ["pil"]="Pillow"
+    ["Crypto"]="pycryptodome"
+    ["sklearn"]="scikit-learn"
+    ["skimage"]="scikit-image"
+    ["cv2"]="opencv-python"
+    ["tensorflow_probability"]="tensorflow-probability"
+    ["PIL"]="Pillow"
+    ["pil"]="Pillow"
+    ["mpl_toolkits"]="matplotlib"
+    ["docx"]="python-docx"
+    ["pptx"]="python-pptx"
+    ["reportlab"]="reportlab"
+    ["yaml"]="PyYAML"
+    ["ruamel"]="ruamel.yaml"
+    ["configobj"]="configobj"
+    ["Crypto"]="pycryptodome"
+    ["crypto"]="pycryptodome"   
+    ["dotenv"]="python-dotenv"
+    ["win32com"]="pywin32"
+    ["serial"]="pyserial"
+    ["dateutil"]="python-dateutil"
+    ["pendulum"]="pendulum"
+    ["googleapiclient"]="google-api-python-client"
+    ["google.cloud"]="google-cloud-core"
+    ["mysql"]="mysqlclient"
+    ["psycopg2"]="psycopg2-binary"
+)
+
 # Temporary file to store library names
 TEMP_FILE=$(mktemp)
 BUILTIN_TEMP_FILE=$(mktemp)
@@ -42,7 +78,7 @@ echo "Built-in modules list retrieved."
 echo "Analyzing Python files for import statements..."
 find . -type f -name "*.py" -not -path "*/$VENV_PATH/*" | while read -r file; do
     # Extract library names from import and from ... import statements
-    grep -E "^[[:space:]]*(import|from)[[:space:]]+[a-zA-Z0-9_]+" "$file" | \
+    grep -E "^[[:space:]]*(import|from)[[:space:]]+[a-zA-Z0-9_]+" "$file" 2>/dev/null | \
     sed -E 's/^[[:space:]]*(import|from)[[:space:]]+//' | \
     sed -E 's/[[:space:]]+.*$//' | \
     sed -E 's/\..*$//' | \
@@ -52,8 +88,7 @@ done | sort | uniq > "$TEMP_FILE"  # Remove duplicates across all files
 # Check if any libraries were found
 if [ ! -s "$TEMP_FILE" ]; then
     echo "No imported libraries found!"
-    rm "$TEMP_FILE"
-    rm "$BUILTIN_TEMP_FILE"
+    rm "$TEMP_FILE" "$BUILTIN_TEMP_FILE"
     exit 0
 fi
 
@@ -62,26 +97,45 @@ echo "Checking library versions in the virtual environment..."
 REQUIREMENTS_FILE="requirements.txt"
 > "$REQUIREMENTS_FILE"  # Clear or create requirements.txt
 
+# Helper associative array to avoid duplicate entries in requirements.txt
+declare -A ADDED_PACKAGES
+
 while IFS= read -r lib; do
-    if [ -n "$lib" ]; then
-        # Check if the library is a built-in module
-        if grep -q "^$lib$" "$BUILTIN_TEMP_FILE"; then
-            echo "Skipped $lib (built-in module for Python $PYTHON_VERSION)"
+    if [ -z "$lib" ]; then
+        continue
+    fi
+
+    # Check if the library is a built-in module
+    if grep -q "^$lib$" "$BUILTIN_TEMP_FILE"; then
+        echo "Skipped $lib (built-in module for Python $PYTHON_VERSION)"
+        continue
+    fi
+
+    # Resolve the real package name (default: same as import lib)
+    pkg="${MODULE_TO_PACKAGE[$lib]:-$lib}"
+
+    # Skip if we have already added this package
+    if [ -n "${ADDED_PACKAGES[$pkg]}" ]; then
+        continue
+    fi
+
+    # Use pip show to get the library version
+    version=$("$PIP_PATH" show "$pkg" 2>/dev/null | grep -i "^Version:" | cut -d' ' -f2)
+
+    if [ -n "$version" ]; then
+        echo "$pkg==$version" >> "$REQUIREMENTS_FILE"
+        ADDED_PACKAGES[$pkg]=1
+        # Print message indicating mapping, if any
+        if [ "$pkg" != "$lib" ]; then
+            echo "Found $lib (package $pkg) version $version"
         else
-            # Use pip show to get the library version
-            version=$("$PIP_PATH" show "$lib" 2>/dev/null | grep -i "^Version:" | cut -d' ' -f2)
-            if [ -n "$version" ]; then
-                echo "$lib==$version" >> "$REQUIREMENTS_FILE"
-                echo "Found $lib version $version"
-            else
-                echo "Skipped $lib (version not found in virtual environment)"
-            fi
+            echo "Found $lib version $version"
         fi
+    else
+        echo "Skipped $lib (package $pkg) - not installed in virtual environment"
     fi
 done < "$TEMP_FILE"
 
 # Clean up temporary files
-rm "$TEMP_FILE"
-rm "$BUILTIN_TEMP_FILE"
-
+rm "$TEMP_FILE" "$BUILTIN_TEMP_FILE"
 echo "requirements.txt file has been generated!"

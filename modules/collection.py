@@ -195,7 +195,8 @@ if __name__ == "__main__":
     chunks = ChunkCollection("chunks_test")
 
     def menu():
-        print("\nvector_db menu:")
+        print("")
+        print("testing menu:")
         print("1. Insert sample text")
         print("2. Retrieve chunks")
         print("3. Search top K chunks")
@@ -203,7 +204,7 @@ if __name__ == "__main__":
         print("5. Drop collection")
         print("6. Rebuild collection")
         print("0. Exit")
-        return int(input("Enter your choice: "))
+        return input("Enter your choice: ").strip()
 
     def test_insert_sample():
         sample_page_uuid = str(uuid.uuid4())
@@ -215,21 +216,21 @@ if __name__ == "__main__":
 
     while True:
         choice = menu()
-        if choice == 1:
+        if choice == "1":
             test_insert_sample()
-        elif choice == 2:
+        elif choice == "2":
             chunks.retrieve_chunks()
-        elif choice == 3:
+        elif choice == "3":
             top_k = int(input("Enter the number of top results to retrieve: "))
             query_text = input("Enter the query text: ")
             chunks.search_top_k_chunks(top_k, query_text)
-        elif choice == 4:
+        elif choice == "4":
             chunks.init()
-        elif choice == 5:
+        elif choice == "5":
             chunks.drop()
-        elif choice == 6:
+        elif choice == "6":
             chunks.clear()
-        elif choice == 0:
+        elif choice == "0":
             break
         else:
             print("Invalid choice. Please try again.")

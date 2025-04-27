@@ -1,23 +1,31 @@
 from flask import Flask, request, Response, jsonify, abort
-from pydantic import BaseModel, HttpUrl
-from typing import List
+from threading import Thread
 import cbor2
+from pydantic import ValidationError
+from typing import Dict
 from modules.embeddings import text_to_embeddings
-from modules.chunk_collection import ChunkCollection
-from modules.constants import PORT
+from modules.schemas import NodeSchema, PageSchema
+from modules.collection import ChunkCollection
+from modules.database import (
+    insert_pages,
+    insert_nodes,
+    get_top_unvisited_domains,
+    get_top_unvisited_urls,
+)
+from modules.constants import PORT, IS_PRODUCTION_ENV
 
 app = Flask(__name__)
 
 
 def dumped_text_to_embeddings(text: str) -> bytes:
     """
-    Convert text to embeddings and serialize to CBOR format.
+    Converts text to embeddings and serializes to CBOR format.
 
     Args:
-        text (str): The input text to generate embeddings for
+        text: Input text for embedding generation.
 
     Returns:
-        bytes: CBOR serialized embeddings
+        CBOR-serialized embeddings as bytes.
     """
     return cbor2.dumps(list(text_to_embeddings(text)))
 
@@ -25,16 +33,15 @@ def dumped_text_to_embeddings(text: str) -> bytes:
 @app.route("/vectors", methods=["POST"])
 def handle_embedding():
     """
-    Handle POST requests to generate text embeddings.
-    Supports JSON, URL-encoded form, multipart/form-data, and plain text.
+    Processes POST requests to generate text embeddings.
+    Supports JSON, URL-encoded form, multipart/form-data, and plain text content types.
 
     Returns:
-        Response: CBOR-encoded embeddings or error response
+        Flask Response with CBOR-encoded embeddings or an error response.
     """
     try:
         content_type = request.headers.get("Content-Type", "")
         text = ""
-        # Handle different content types
         if content_type.startswith("application/json"):
             json_data = request.get_json()
             if not json_data or "text" not in json_data:
@@ -50,19 +57,17 @@ def handle_embedding():
                 if file.filename:
                     text = file.read().decode("utf-8")
         else:
-            # Handle plain text or other content types
             if request.data:
                 text = request.data.decode("utf-8")
         if not text:
             abort(400, description="No valid text provided")
-        # Generate and return CBOR response
         binary_response = dumped_text_to_embeddings(text)
         return Response(binary_response, content_type="application/cbor", status=200)
     except Exception as e:
         abort(500, description=f"Internal Server Error: {str(e)}")
 
 
-# ---------- CN-Project API endpoints ----------
+# ---------- CN-Project API Endpoints ----------
 
 chunks = ChunkCollection("chunks_test")
 
@@ -70,118 +75,117 @@ chunks = ChunkCollection("chunks_test")
 @app.route("/cn-project/next-pages", methods=["GET"])
 def get_next_pages():
     """
-    Mock endpoint for fetching next pages.
+    Retrieves the next unvisited pages.
+
     Returns:
-        JSON: List of URLs as links
+        JSON response containing a list of URLs.
     """
-    return jsonify(
-        {"links": ["https://example.com/page1", "https://example.com/page2"]}
-    )
+    return jsonify({"links": get_top_unvisited_urls()})
 
 
-@app.route("/cn-project/next-nodes", methods=["GET"])
+@app.route("/cn-project/next-domains", methods=["GET"])
 def get_next_nodes():
     """
-    Mock endpoint for fetching next nodes.
+    Retrieves the next unvisited domains.
+
     Returns:
-        JSON: List of domains
+        JSON response containing a list of domains.
     """
-    return jsonify({"domains": ["example.com", "another.com"]})
-
-
-pages_schema = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "url": {"type": "string"},
-            "domain": {"type": "string"},
-            "title": {"type": "string"},
-            "description": {"type": "string"},
-            "markdown": {"type": "string"},
-            "delay_time": {"type": "string"},
-            "links": {"type": "array", "items": {"type": "string"}},
-        },
-        "required": [
-            "url",
-            "domain",
-            "title",
-            "description",
-            "markdown",
-            "delay_time",
-            "links",
-        ],
-        "additionalProperties": False,
-    },
-}
-
-
-class Item(BaseModel):
-    url: HttpUrl
-    domain: str
-    title: str
-    description: str
-    markdown: str
-    delay_time: str
-    links: List[HttpUrl]
-
-
-class Items(BaseModel):
-    items: List[Item]
+    return jsonify({"domains": get_top_unvisited_domains()})
 
 
 @app.route("/cn-project/store-pages", methods=["POST"])
 def store_pages():
     """
-    Mock endpoint for storing page metadata.
-    Accepts JSON or form URL-encoded data.
+    Stores page metadata and processes content chunks in the background.
+    Expects a JSON array validated against PageSchema.
 
     Returns:
-        JSON: Success status
+        JSON response indicating success or validation errors.
     """
     content_type = request.headers.get("Content-Type", "")
-    if not (content_type.startswith("application/json")):
+    if not content_type.startswith("application/json"):
         abort(415, description="Unsupported Content-Type")
-    pages = request.json
+
+    try:
+        pages_json = request.get_json()
+        if not isinstance(pages_json, list):
+            return (
+                jsonify({"success": False, "errors": "Expected a list of pages"}),
+                422,
+            )
+
+        pages = [PageSchema.model_validate(item) for item in pages_json]
+    except ValidationError as e:
+        return jsonify({"success": False, "errors": e.errors()}), 422
+
+    inserted_pages = insert_pages(pages)
+
+    def insert_chunks_in_background(inserted_pages: Dict[str, PageSchema]) -> None:
+        """
+        Inserts page content into the chunks collection in the background.
+
+        Args:
+            inserted_pages: Dictionary mapping page UUIDs to PageSchema objects.
+        """
+        for page_uuid, page in inserted_pages.items():
+            try:
+                chunks.write_content(page_uuid, page.markdown)
+            except Exception as e:
+                app.logger.error(
+                    f"Failed to insert content for page {page_uuid}: {str(e)}"
+                )
+
+    Thread(target=insert_chunks_in_background, args=(inserted_pages,)).start()
     return jsonify({"success": True})
 
 
 @app.route("/cn-project/store-nodes", methods=["POST"])
 def store_nodes():
     """
-    Mock endpoint for storing node data.
-    Accepts JSON or form URL-encoded data.
+    Stores node metadata.
+    Expects a JSON array validated against NodeSchema.
 
     Returns:
-        JSON: Success status
+        JSON response indicating success or validation errors.
     """
     content_type = request.headers.get("Content-Type", "")
-    if not (content_type.startswith("application/json")):
+    if not content_type.startswith("application/json"):
         abort(415, description="Unsupported Content-Type")
+
+    try:
+        nodes_json = request.get_json()
+        if not isinstance(nodes_json, list):
+            return (
+                jsonify({"success": False, "errors": "Expected a list of nodes"}),
+                422,
+            )
+
+        nodes = [NodeSchema.model_validate(item) for item in nodes_json]
+    except ValidationError as e:
+        return jsonify({"success": False, "errors": e.errors()}), 422
+
+    insert_nodes(nodes)
     return jsonify({"success": True})
 
 
 @app.errorhandler(400)
 @app.errorhandler(401)
 @app.errorhandler(404)
-@app.errorhandler(405)
 @app.errorhandler(415)
 @app.errorhandler(500)
 def handle_error(error):
     """
-    Custom error handler for HTTP errors.
+    Handles HTTP errors with custom JSON responses.
 
     Args:
-        error: The error object containing code and description
+        error: Error object containing code and description.
 
     Returns:
-        Response: JSON error response
+        JSON response with error status and description.
     """
-    return (
-        jsonify({"status": error.code, "error": str(error.description)}),
-        error.code,
-    )
+    return jsonify({"status": error.code, "error": str(error.description)}), error.code
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    app.run(host="0.0.0.0", port=PORT, debug=IS_PRODUCTION_ENV)

@@ -35,13 +35,16 @@
 3. **Install Dependencies**:
 
    ```bash
+   sudo apt update
+   sudo apt install python3-dev libpq-dev build-essential
    pip install -r requirements.txt
+
    ```
 
    To export the list of installed packages from your current virtual environment to a `requirements.txt` file, use:
 
    ```bash
-   pip freeze > requirements.txt
+   bash bin/exports
    ```
 
 ## Usage

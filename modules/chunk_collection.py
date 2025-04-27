@@ -8,8 +8,8 @@ from pymilvus import (
     utility,
     SearchResult,
 )
-from logger import logger
-from embeddings import text_to_embeddings
+from .logger import logger
+from .embeddings import text_to_embeddings
 
 connections.connect(alias="default", host="127.0.0.1", port="19530")
 

@@ -1,5 +1,5 @@
 import logging
-from constants import IS_PRODUCTION_ENV
+from .constants import IS_PRODUCTION_ENV
 
 # 建立 logger
 logger = logging.getLogger(__name__)

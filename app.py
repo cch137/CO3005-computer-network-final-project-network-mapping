@@ -2,8 +2,9 @@ from flask import Flask, request, Response, jsonify, abort
 from pydantic import BaseModel, HttpUrl
 from typing import List
 import cbor2
-from embeddings import text_to_embeddings
-from constants import PORT
+from .modules.embeddings import text_to_embeddings
+from .modules.chunk_collection import ChunkCollection
+from .modules.constants import PORT
 
 app = Flask(__name__)
 
@@ -62,6 +63,8 @@ def handle_embedding():
 
 
 # ---------- CN-Project API endpoints ----------
+
+chunks = ChunkCollection("chunks_test")
 
 
 @app.route("/cn-project/next-pages", methods=["GET"])

@@ -1,5 +1,6 @@
 from flask import Flask, request, Response, jsonify, abort
 import cbor2
+import threading
 from pydantic import ValidationError
 from modules.embeddings import text_to_embeddings
 from modules.schemas import NodeSchema, PageSchema
@@ -125,14 +126,16 @@ def store_pages():
 
     inserted_pages = insert_pages(pages)
 
-    try:
-        return jsonify({"success": True})
-    finally:
-        for page_uuid, page in inserted_pages.items():
+    def process_chunks(pages_dict):
+        for page_uuid, page in pages_dict.items():
             try:
                 chunks.write_content(page_uuid, page.markdown)
             except Exception as e:
                 logger.error(f"Failed to insert content for page {page_uuid}: {str(e)}")
+
+    threading.Thread(target=process_chunks, args=(inserted_pages,), daemon=True).start()
+
+    return jsonify({"success": True})
 
 
 @app.route("/cn-project/store-nodes", methods=["POST"])

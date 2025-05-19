@@ -51,6 +51,7 @@ def insert_nodes(nodes: List[NodeSchema]):
                 fetch=True,
             )
         conn.commit()
+        logger.info(f"Successfully inserted or updated {len(nodes)} nodes")
     except Exception as e:
         logger.error(f"Error inserting nodes: {e}")
         conn.rollback()
@@ -108,6 +109,7 @@ def insert_pages(pages: List[PageSchema]) -> Dict[str, PageSchema]:
                     result[uuid] = url_to_page[url]
 
         conn.commit()
+        logger.info(f"Successfully inserted or updated {len(pages)} pages")
         return result
     except Exception as e:
         logger.error(f"Error inserting pages: {e}")
@@ -148,6 +150,7 @@ def get_top_unvisited_urls(limit: int = 10):
         with conn.cursor() as cur:
             cur.execute(sql, (limit,))
             results = [row[0] for row in cur.fetchall()]  # Extract just the URLs
+        logger.info(f"Retrieved {len(results)} top unvisited URLs")
         return results
     except Exception as e:
         logger.error(f"Error fetching top unvisited URLs: {e}")
@@ -193,6 +196,7 @@ def get_top_unvisited_domains(limit: int = 10):
         with conn.cursor() as cur:
             cur.execute(sql, (limit,))
             results = [row[0] for row in cur.fetchall()]  # Extract just the domains
+        logger.info(f"Retrieved {len(results)} top unvisited domains")
         return results
     except Exception as e:
         logger.error(f"Error fetching top unvisited domains: {e}")

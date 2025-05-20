@@ -128,9 +128,9 @@ def insert_pages(pages: List[PageSchema]) -> Dict[str, PageSchema]:
 
 def get_top_unvisited_urls(limit: int = 10):
     """
-    Retrieve URLs that have not been visited yet with the following priority:
-    1. First, select URLs from domains that haven't been visited before, up to half of the limit
-    2. Then, fill the remaining slots with URLs that have the highest counts
+    Retrieve URLs that have not been visited yet, ensuring domain diversity.
+    The function prioritizes domains that haven't been visited before and
+    returns at most one URL per domain to maximize domain diversity.
 
     Args:
         limit (int): Number of URLs to return.
@@ -138,11 +138,8 @@ def get_top_unvisited_urls(limit: int = 10):
     Returns:
         List of URLs (not tuples).
     """
-    # Calculate half of the limit (for unvisited domains)
-    unvisited_domains_limit = limit
-
-    # SQL to get URLs from unvisited domains
-    unvisited_domains_sql = """
+    # SQL to get diverse unvisited URLs (one per domain)
+    diverse_domains_sql = """
         WITH all_links AS (
             SELECT unnest(links) AS link_url
             FROM pages
@@ -154,58 +151,30 @@ def get_top_unvisited_urls(limit: int = 10):
         ), visited_domains AS (
             SELECT DISTINCT unnest(domains) AS domain
             FROM nodes
-        ), unvisited_domain_links AS (
-            SELECT link_url, domain, COUNT(*) OVER (PARTITION BY link_url) AS cnt
+        ), domain_prioritized AS (
+            SELECT 
+                link_url, 
+                domain,
+                -- Prioritize unvisited domains (lower rank)
+                CASE WHEN domain NOT IN (SELECT domain FROM visited_domains) THEN 0 ELSE 1 END AS domain_priority,
+                -- Rank URLs within each domain
+                ROW_NUMBER() OVER (PARTITION BY domain ORDER BY link_url) AS domain_rank
             FROM link_domains
-            WHERE domain NOT IN (SELECT domain FROM visited_domains)
         )
         SELECT link_url
-        FROM unvisited_domain_links
-        ORDER BY cnt DESC
-        LIMIT %s;
-    """
-
-    # SQL to get URLs with highest counts (original implementation)
-    highest_counts_sql = """
-        WITH all_links AS (
-            SELECT unnest(links) AS link_url
-            FROM pages
-        ), link_counts AS (
-            SELECT link_url, COUNT(*) AS cnt
-            FROM all_links
-            GROUP BY link_url
-        ), excluded_urls AS (
-            SELECT unnest(%s::text[]) AS url
-        )
-        SELECT link_url
-        FROM link_counts
-        WHERE link_url NOT IN (SELECT url FROM pages)
-          AND link_url NOT IN (SELECT url FROM excluded_urls)
-        ORDER BY cnt DESC
+        FROM domain_prioritized
+        WHERE domain_rank = 1  -- Take only the first URL from each domain
+        ORDER BY domain_priority, domain  -- Prioritize unvisited domains, then alphabetically
         LIMIT %s;
     """
 
     conn = get_pg_connection()
     try:
-        results = []
-
-        # First, get URLs from unvisited domains
         with conn.cursor() as cur:
-            cur.execute(unvisited_domains_sql, (unvisited_domains_limit,))
-            unvisited_domain_results = [row[0] for row in cur.fetchall()]
-            results.extend(unvisited_domain_results)
+            cur.execute(diverse_domains_sql, (limit,))
+            results = [row[0] for row in cur.fetchall()]
 
-        # Calculate remaining limit
-        remaining_limit = limit - len(results)
-
-        # If we need more URLs, get the highest count ones excluding already selected
-        if remaining_limit > 0:
-            with conn.cursor() as cur:
-                cur.execute(highest_counts_sql, (results, remaining_limit))
-                highest_count_results = [row[0] for row in cur.fetchall()]
-                results.extend(highest_count_results)
-
-        logger.info(f"Retrieved {len(results)} top unvisited URLs")
+        logger.info(f"Retrieved {len(results)} diverse unvisited URLs")
         return results
     except Exception as e:
         logger.error(f"Error fetching top unvisited URLs: {e}")

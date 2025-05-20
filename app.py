@@ -2,6 +2,7 @@ from flask import Flask, request, Response, jsonify, abort
 import cbor2
 import threading
 from pydantic import ValidationError
+from flask_cors import CORS
 from modules.embeddings import text_to_embeddings
 from modules.schemas import NodeSchema, PageSchema
 from modules.collection import ChunkCollection
@@ -16,6 +17,7 @@ from modules.database import (
 from modules.constants import PORT, IS_PRODUCTION_ENV
 
 app = Flask(__name__)
+CORS(app)
 
 
 def dumped_text_to_embeddings(text: str) -> bytes:

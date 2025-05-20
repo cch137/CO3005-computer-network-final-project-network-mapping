@@ -1,5 +1,6 @@
 from flask import Flask, request, Response, jsonify, abort
 import cbor2
+import threading
 from pydantic import ValidationError
 from modules.embeddings import text_to_embeddings
 from modules.schemas import NodeSchema, PageSchema
@@ -75,6 +76,13 @@ def handle_embedding():
 
 chunks = ChunkCollection("chunks")
 
+lock = False
+
+
+@app.route("/cn-project/lock", methods=["GET"])
+def get_lock():
+    return jsonify({"lock": lock})
+
 
 @app.route("/cn-project/next-pages", methods=["GET"])
 def get_next_pages():
@@ -98,15 +106,51 @@ def get_next_nodes():
     return jsonify({"domains": get_top_unvisited_domains()})
 
 
+def process_page_content(inserted_pages):
+    """
+    Process page content in a separate thread.
+    Sets the global lock while processing.
+
+    Args:
+        inserted_pages: Dictionary of page UUIDs to Page objects
+    """
+    global lock
+    lock = True
+    try:
+        for page_uuid, page in inserted_pages.items():
+            try:
+                chunks.write_content(page_uuid, page.markdown)
+            except Exception as e:
+                logger.error(f"Failed to insert content for page {page_uuid}: {str(e)}")
+    finally:
+        lock = False
+
+
 @app.route("/cn-project/store-pages", methods=["POST"])
 def store_pages():
     """
     Stores page metadata and processes content chunks in the background.
     Expects a JSON array validated against PageSchema.
 
+    The content processing happens in a separate thread to avoid blocking the response.
+    If the system is currently locked, returns an error response.
+
     Returns:
         JSON response indicating success or validation errors.
     """
+    # Check if the system is currently locked
+    global lock
+    if lock:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "errors": "System is currently processing content. Try again later.",
+                }
+            ),
+            429,
+        )
+
     content_type = request.headers.get("Content-Type", "")
     if not content_type.startswith("application/json"):
         abort(415, description="Unsupported Content-Type")
@@ -125,11 +169,10 @@ def store_pages():
 
     inserted_pages = insert_pages(pages)
 
-    for page_uuid, page in inserted_pages.items():
-        try:
-            chunks.write_content(page_uuid, page.markdown)
-        except Exception as e:
-            logger.error(f"Failed to insert content for page {page_uuid}: {str(e)}")
+    # Start a new thread to process the content
+    threading.Thread(
+        target=process_page_content, args=(inserted_pages,), daemon=True
+    ).start()
 
     return jsonify({"success": True})
 

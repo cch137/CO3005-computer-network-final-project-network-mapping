@@ -121,16 +121,45 @@ def insert_pages(pages: List[PageSchema]) -> Dict[str, PageSchema]:
 
 def get_top_unvisited_urls(limit: int = 10):
     """
-    Retrieve top URLs that are referenced most in pages.links
-    but have not been visited yet (not recorded in pages.url).
+    Retrieve URLs that have not been visited yet with the following priority:
+    1. First, select URLs from domains that haven't been visited before, up to half of the limit
+    2. Then, fill the remaining slots with URLs that have the highest counts
 
     Args:
-        limit (int): Number of top URLs to return.
+        limit (int): Number of URLs to return.
 
     Returns:
         List of URLs (not tuples).
     """
-    sql = """
+    # Calculate half of the limit (for unvisited domains)
+    unvisited_domains_limit = limit
+
+    # SQL to get URLs from unvisited domains
+    unvisited_domains_sql = """
+        WITH all_links AS (
+            SELECT unnest(links) AS link_url
+            FROM pages
+        ), link_domains AS (
+            SELECT DISTINCT link_url,
+                split_part(split_part(link_url, '://', 2), '/', 1) AS domain
+            FROM all_links
+            WHERE link_url NOT IN (SELECT url FROM pages)
+        ), visited_domains AS (
+            SELECT DISTINCT unnest(domains) AS domain
+            FROM nodes
+        ), unvisited_domain_links AS (
+            SELECT link_url, domain, COUNT(*) OVER (PARTITION BY link_url) AS cnt
+            FROM link_domains
+            WHERE domain NOT IN (SELECT domain FROM visited_domains)
+        )
+        SELECT link_url
+        FROM unvisited_domain_links
+        ORDER BY cnt DESC
+        LIMIT %s;
+    """
+
+    # SQL to get URLs with highest counts (original implementation)
+    highest_counts_sql = """
         WITH all_links AS (
             SELECT unnest(links) AS link_url
             FROM pages
@@ -138,18 +167,37 @@ def get_top_unvisited_urls(limit: int = 10):
             SELECT link_url, COUNT(*) AS cnt
             FROM all_links
             GROUP BY link_url
+        ), excluded_urls AS (
+            SELECT unnest(%s::text[]) AS url
         )
         SELECT link_url
         FROM link_counts
         WHERE link_url NOT IN (SELECT url FROM pages)
+          AND link_url NOT IN (SELECT url FROM excluded_urls)
         ORDER BY cnt DESC
         LIMIT %s;
     """
+
     conn = get_pg_connection()
     try:
+        results = []
+
+        # First, get URLs from unvisited domains
         with conn.cursor() as cur:
-            cur.execute(sql, (limit,))
-            results = [row[0] for row in cur.fetchall()]  # Extract just the URLs
+            cur.execute(unvisited_domains_sql, (unvisited_domains_limit,))
+            unvisited_domain_results = [row[0] for row in cur.fetchall()]
+            results.extend(unvisited_domain_results)
+
+        # Calculate remaining limit
+        remaining_limit = limit - len(results)
+
+        # If we need more URLs, get the highest count ones excluding already selected
+        if remaining_limit > 0:
+            with conn.cursor() as cur:
+                cur.execute(highest_counts_sql, (results, remaining_limit))
+                highest_count_results = [row[0] for row in cur.fetchall()]
+                results.extend(highest_count_results)
+
         logger.info(f"Retrieved {len(results)} top unvisited URLs")
         return results
     except Exception as e:

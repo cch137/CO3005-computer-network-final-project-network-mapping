@@ -21,6 +21,7 @@ def insert_nodes(nodes: List[NodeSchema]):
     Args:
         nodes: List of NodeSchema instances.
     """
+    print(nodes)
     conn = get_pg_connection()
     try:
         # Log details of nodes being inserted
@@ -54,7 +55,6 @@ def insert_nodes(nodes: List[NodeSchema]):
                     )
                     for node in nodes
                 ],
-                fetch=True,
             )
         conn.commit()
         logger.info(f"Successfully inserted or updated {len(nodes)} nodes")
@@ -128,9 +128,9 @@ def insert_pages(pages: List[PageSchema]) -> Dict[str, PageSchema]:
 
 def get_top_unvisited_urls(limit: int = 10):
     """
-    Retrieve URLs that have not been visited yet, ensuring domain diversity.
-    The function prioritizes domains that haven't been visited before and
-    returns at most one URL per domain to maximize domain diversity.
+    Retrieve URLs that haven't been visited yet (from pages.links but not in pages.url),
+    prioritizing domain diversity. URLs from domains that are already in the database
+    will have lower priority.
 
     Args:
         limit (int): Number of URLs to return.
@@ -138,40 +138,68 @@ def get_top_unvisited_urls(limit: int = 10):
     Returns:
         List of URLs (not tuples).
     """
-    # SQL to get diverse unvisited URLs (one per domain)
-    diverse_domains_sql = """
-        WITH all_links AS (
-            SELECT unnest(links) AS link_url
+    sql = """
+        WITH 
+        -- Extract all links from pages
+        all_links AS (
+            SELECT DISTINCT unnest(links) AS link_url
             FROM pages
-        ), link_domains AS (
-            SELECT DISTINCT link_url,
-                split_part(split_part(link_url, '://', 2), '/', 1) AS domain
+        ),
+        -- Filter out links that are already in the pages table (already visited)
+        unvisited_links AS (
+            SELECT link_url
             FROM all_links
             WHERE link_url NOT IN (SELECT url FROM pages)
-        ), visited_domains AS (
-            SELECT DISTINCT unnest(domains) AS domain
-            FROM nodes
-        ), domain_prioritized AS (
+        ),
+        -- Extract domain from each link
+        link_domains AS (
             SELECT 
-                link_url, 
+                link_url,
+                split_part(split_part(link_url, '://', 2), '/', 1) AS domain
+            FROM unvisited_links
+        ),
+        -- Check which domains are already in the database
+        domain_status AS (
+            SELECT 
+                link_url,
                 domain,
-                -- Prioritize unvisited domains (lower rank)
-                CASE WHEN domain NOT IN (SELECT domain FROM visited_domains) THEN 0 ELSE 1 END AS domain_priority,
-                -- Rank URLs within each domain
-                ROW_NUMBER() OVER (PARTITION BY domain ORDER BY link_url) AS domain_rank
+                EXISTS (
+                    SELECT 1 
+                    FROM nodes 
+                    WHERE domain = ANY(domains)
+                ) AS domain_exists
             FROM link_domains
+        ),
+        -- Rank URLs with domain diversity in mind
+        ranked_urls AS (
+            SELECT 
+                link_url,
+                domain,
+                ROW_NUMBER() OVER (
+                    PARTITION BY domain 
+                    ORDER BY link_url
+                ) AS domain_rank,
+                ROW_NUMBER() OVER (
+                    ORDER BY domain_exists, 
+                             domain,
+                             link_url
+                ) AS overall_rank
+            FROM domain_status
         )
+        -- Select top URLs with domain diversity
         SELECT link_url
-        FROM domain_prioritized
-        WHERE domain_rank = 1  -- Take only the first URL from each domain
-        ORDER BY domain_priority, domain  -- Prioritize unvisited domains, then alphabetically
-        LIMIT %s;
+        FROM ranked_urls
+        WHERE domain_rank = 1  -- Take only one URL per domain initially
+        ORDER BY 
+            CASE WHEN domain_exists THEN 1 ELSE 0 END,  -- Prioritize new domains
+            overall_rank
+        LIMIT %s
     """
 
     conn = get_pg_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(diverse_domains_sql, (limit,))
+            cur.execute(sql, (limit,))
             results = [row[0] for row in cur.fetchall()]
 
         logger.info(f"Retrieved {len(results)} diverse unvisited URLs")

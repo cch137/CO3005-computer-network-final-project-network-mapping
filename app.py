@@ -98,7 +98,7 @@ def get_next_pages():
     return jsonify({"links": get_top_unvisited_urls()})
 
 
-@app.route("/cn-project/next-domains", methods=["GET"])
+@app.route("/cn-project/v2/next-domains", methods=["GET"])
 def get_next_nodes():
     """
     Retrieves the next unvisited domains.
@@ -180,7 +180,7 @@ def store_pages():
     return jsonify({"success": True})
 
 
-@app.route("/cn-project/store-nodes", methods=["POST"])
+@app.route("/cn-project/v2/store-nodes", methods=["POST"])
 def store_nodes():
     """
     Stores node metadata.

@@ -23,6 +23,12 @@ def insert_nodes(nodes: List[NodeSchema]):
     """
     conn = get_pg_connection()
     try:
+        # Log details of nodes being inserted
+        for node in nodes:
+            logger.info(
+                f"Inserting/updating node: ip={node.ip_addr}, name={node.name}, domains={node.domains}"
+            )
+
         with conn.cursor() as cur:
             # Using execute_values for batch insertion
             execute_values(
@@ -107,6 +113,7 @@ def insert_pages(pages: List[PageSchema]) -> Dict[str, PageSchema]:
                 uuid, url = row
                 if url in url_to_page:
                     result[uuid] = url_to_page[url]
+                    logger.info(f"Inserted/updated page with UUID: {uuid}, URL: {url}")
 
         conn.commit()
         logger.info(f"Successfully inserted or updated {len(pages)} pages")

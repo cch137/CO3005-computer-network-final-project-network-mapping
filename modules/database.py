@@ -144,55 +144,70 @@ def get_top_unvisited_urls(limit: int = 10):
         all_links AS (
             SELECT DISTINCT unnest(links) AS link_url
             FROM pages
+            WHERE links IS NOT NULL AND array_length(links, 1) > 0
         ),
         -- Filter out links that are already in the pages table (already visited)
         unvisited_links AS (
-            SELECT link_url
-            FROM all_links
-            WHERE link_url NOT IN (SELECT url FROM pages)
+            SELECT al.link_url
+            FROM all_links al
+            LEFT JOIN pages p ON al.link_url = p.url
+            WHERE p.url IS NULL
         ),
         -- Extract domain from each link
         link_domains AS (
             SELECT 
                 link_url,
-                split_part(split_part(link_url, '://', 2), '/', 1) AS domain
+                CASE 
+                    WHEN position('://' IN link_url) > 0 THEN
+                        split_part(split_part(link_url, '://', 2), '/', 1)
+                    ELSE
+                        split_part(link_url, '/', 1)
+                END AS domain
             FROM unvisited_links
+            WHERE link_url IS NOT NULL AND length(link_url) > 0
         ),
         -- Check which domains are already in the database
         domain_status AS (
             SELECT 
-                link_url,
-                domain,
+                ld.link_url,
+                ld.domain,
                 EXISTS (
                     SELECT 1 
-                    FROM nodes 
-                    WHERE domain = ANY(domains)
+                    FROM nodes n, unnest(n.domains) AS d
+                    WHERE ld.domain = d
                 ) AS domain_exists
-            FROM link_domains
+            FROM link_domains ld
+        ),
+        -- Calculate domain counts for ranking
+        domain_counts AS (
+            SELECT 
+                domain,
+                COUNT(*) AS count
+            FROM domain_status
+            GROUP BY domain
         ),
         -- Rank URLs with domain diversity in mind
         ranked_urls AS (
             SELECT 
-                link_url,
-                domain,
+                ds.link_url,
+                ds.domain,
+                ds.domain_exists,
                 ROW_NUMBER() OVER (
-                    PARTITION BY domain 
-                    ORDER BY link_url
+                    PARTITION BY ds.domain 
+                    ORDER BY ds.link_url
                 ) AS domain_rank,
-                ROW_NUMBER() OVER (
-                    ORDER BY domain_exists, 
-                             domain,
-                             link_url
-                ) AS overall_rank
-            FROM domain_status
+                dc.count AS domain_count
+            FROM domain_status ds
+            JOIN domain_counts dc ON ds.domain = dc.domain
         )
         -- Select top URLs with domain diversity
         SELECT link_url
         FROM ranked_urls
         WHERE domain_rank = 1  -- Take only one URL per domain initially
         ORDER BY 
-            CASE WHEN domain_exists THEN 1 ELSE 0 END,  -- Prioritize new domains
-            overall_rank
+            domain_exists ASC,  -- Prioritize new domains
+            domain_count DESC,  -- Then prioritize domains with more references
+            link_url            -- Finally sort by URL for deterministic results
         LIMIT %s
     """
 

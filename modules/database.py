@@ -270,3 +270,37 @@ def get_top_unvisited_domains(limit: int = 10):
         return []
     finally:
         conn.close()
+
+
+def get_all_nodes() -> List[NodeSchema]:
+    """
+    Retrieve all nodes from the database.
+
+    Returns:
+        List of NodeSchema objects representing all nodes in the database.
+    """
+    conn = get_pg_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT ip_addr, name, domains, neighbours FROM nodes")
+            results = cur.fetchall()
+
+            nodes = []
+            for row in results:
+                ip_addr, name, domains, neighbours = row
+                nodes.append(
+                    NodeSchema(
+                        ip_addr=ip_addr,
+                        name=name,
+                        domains=domains,
+                        neighbours=neighbours,
+                    )
+                )
+
+            logger.info(f"Retrieved {len(nodes)} nodes from database")
+            return nodes
+    except Exception as e:
+        logger.error(f"Error fetching all nodes: {e}")
+        return []
+    finally:
+        conn.close()

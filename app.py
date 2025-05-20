@@ -11,6 +11,7 @@ from modules.database import (
     insert_nodes,
     get_top_unvisited_domains,
     get_top_unvisited_urls,
+    get_all_nodes,
 )
 from modules.constants import PORT, IS_PRODUCTION_ENV
 
@@ -204,6 +205,26 @@ def store_nodes():
 
     insert_nodes(nodes)
     return jsonify({"success": True})
+
+
+@app.route("/cn-project/all-nodes", methods=["GET"])
+def get_all_nodes_route():
+    """
+    Retrieves all nodes from the database.
+
+    Returns:
+        JSON response containing a list of all nodes.
+    """
+    nodes = get_all_nodes()
+    # Convert each node to a dict with str representation of IP address
+    serialized_nodes = []
+    for node in nodes:
+        node_dict = node.model_dump()
+        # Convert IPvAnyAddress to string to make it JSON serializable
+        node_dict["ip_addr"] = str(node.ip_addr)
+        serialized_nodes.append(node_dict)
+
+    return jsonify({"nodes": serialized_nodes})
 
 
 @app.errorhandler(400)

@@ -77,7 +77,9 @@ def handle_embedding():
 
 # ---------- CN-Project API Endpoints ----------
 
-chunks = ChunkCollection("chunks")
+import os
+
+chunks = ChunkCollection(os.getenv("MILVUS_COLLECTION_NAME", "chunks"))
 
 lock = False
 

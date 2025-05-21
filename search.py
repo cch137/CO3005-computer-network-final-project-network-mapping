@@ -11,7 +11,7 @@ from modules.database import get_pg_connection
 from modules.logger import logger
 
 # Number of chunks to retrieve in search
-MAX_CHUNKS = 5
+MAX_CHUNKS = 10
 
 # Initialize the ChunkCollection with the environment variable
 chunks = ChunkCollection(os.getenv("MILVUS_COLLECTION_NAME", "chunks"))
@@ -189,22 +189,59 @@ def search_chunks_and_pages(query_text: str, top_k: int = MAX_CHUNKS) -> Dict[st
     }
 
 
+# ANSI color codes
+class Colors:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
+
+    # Foreground colors
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
+
+    # Background colors
+    BG_BLACK = "\033[40m"
+    BG_RED = "\033[41m"
+    BG_GREEN = "\033[42m"
+    BG_YELLOW = "\033[43m"
+    BG_BLUE = "\033[44m"
+    BG_MAGENTA = "\033[45m"
+    BG_CYAN = "\033[46m"
+    BG_WHITE = "\033[47m"
+
+    # Bright foreground colors
+    BRIGHT_BLACK = "\033[90m"
+    BRIGHT_RED = "\033[91m"
+    BRIGHT_GREEN = "\033[92m"
+    BRIGHT_YELLOW = "\033[93m"
+    BRIGHT_BLUE = "\033[94m"
+    BRIGHT_MAGENTA = "\033[95m"
+    BRIGHT_CYAN = "\033[96m"
+    BRIGHT_WHITE = "\033[97m"
+
+
 def format_search_results(results: Dict[str, Any]) -> str:
     """
-    Format search results for display.
+    Format search results for display with color.
 
     Args:
         results: Search results from search_chunks_and_pages
 
     Returns:
-        Formatted string for display
+        Formatted string for display with ANSI color codes
     """
     if not results["pages"]:
-        return "No results found."
+        return f"{Colors.YELLOW}No results found.{Colors.RESET}"
 
     output = []
     output.append(
-        f"Found {results['total_chunks']} relevant chunks across {len(results['pages'])} pages.\n"
+        f"{Colors.BOLD}{Colors.GREEN}Found {results['total_chunks']} relevant chunks across {len(results['pages'])} pages.{Colors.RESET}\n"
     )
 
     for i, page_result in enumerate(results["pages"], 1):
@@ -212,24 +249,56 @@ def format_search_results(results: Dict[str, Any]) -> str:
         chunks = page_result["chunks"]
 
         # Page header with metadata
-        output.append("=" * 80)
-        output.append(f"PAGE {i}: {page['title']}")
-        output.append(f"URL: {page['url']}")
-        output.append(f"Domain: {page['domain']}")
+        output.append(f"{Colors.BRIGHT_CYAN}{'=' * 80}{Colors.RESET}")
+        output.append(
+            f"{Colors.BOLD}{Colors.BLUE}PAGE {i}: {Colors.BRIGHT_WHITE}{page['title']}{Colors.RESET}"
+        )
+        output.append(
+            f"{Colors.CYAN}URL: {Colors.BRIGHT_BLUE}{page['url']}{Colors.RESET}"
+        )
+        output.append(
+            f"{Colors.CYAN}Domain: {Colors.BRIGHT_BLUE}{page['domain']}{Colors.RESET}"
+        )
         if page["description"]:
-            output.append(f"Description: {page['description']}")
-        output.append(f"Matching Chunks: {len(chunks)}")
-        output.append("-" * 80)
+            output.append(
+                f"{Colors.CYAN}Description: {Colors.WHITE}{page['description']}{Colors.RESET}"
+            )
+        output.append(
+            f"{Colors.CYAN}Matching Chunks: {Colors.BRIGHT_YELLOW}{len(chunks)}{Colors.RESET}"
+        )
+        output.append(f"{Colors.BRIGHT_CYAN}{'-' * 80}{Colors.RESET}")
 
         # Chunks with their scores
         for j, chunk in enumerate(chunks, 1):
-            output.append(f"Chunk {j} [Score: {chunk['score']:.4f}]")
-            output.append(f"{chunk['content']}")
-            if j < len(chunks):
-                output.append("-" * 40)
+            # Calculate a color for the score (green for high scores, yellow for medium, red for low)
+            score_color = (
+                Colors.BRIGHT_GREEN
+                if chunk["score"] > 0.7
+                else (
+                    Colors.BRIGHT_YELLOW if chunk["score"] > 0.4 else Colors.BRIGHT_RED
+                )
+            )
 
-    output.append("=" * 80)
+            output.append(
+                f"{Colors.MAGENTA}Chunk {j} [{Colors.CYAN}Score: {score_color}{chunk['score']:.4f}{Colors.RESET}{Colors.MAGENTA}]{Colors.RESET}"
+            )
+            output.append(f"{Colors.WHITE}{chunk['content']}{Colors.RESET}")
+            if j < len(chunks):
+                output.append(f"{Colors.BRIGHT_BLACK}{'-' * 40}{Colors.RESET}")
+
+    output.append(f"{Colors.BRIGHT_CYAN}{'=' * 80}{Colors.RESET}")
     return "\n".join(output)
+
+
+def clear_screen():
+    """
+    Clear the terminal screen.
+    """
+    # Check if the OS is Windows or Unix-like
+    if os.name == "nt":  # For Windows
+        os.system("cls")
+    else:  # For Unix/Linux/MacOS
+        os.system("clear")
 
 
 def main():
@@ -246,7 +315,15 @@ def main():
                 if not query.strip():
                     continue
 
+                # Clear the screen before showing new results
+                clear_screen()
+
+                # Show what was searched for
+                print(
+                    f'{Colors.BOLD}{Colors.BRIGHT_MAGENTA}Search Query: "{query}"{Colors.RESET}'
+                )
                 print("Searching...")
+
                 results = search_chunks_and_pages(query)
                 print(format_search_results(results))
                 print("\nEnter a new search query (Ctrl+C to exit):")

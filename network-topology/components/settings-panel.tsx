@@ -114,20 +114,20 @@ export default function SettingsPanel({ settings, onSettingsChange }: SettingsPa
             <h3 className={cn("font-medium", theme === "dark" ? "text-[#f8f8f2]" : "")}>連接設置</h3>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="linkDistance" className={theme === "dark" ? "text-[#f8f8f2]" : ""}>
-                  連接距離
+                <Label htmlFor="linkLength" className={theme === "dark" ? "text-[#f8f8f2]" : ""}>
+                  連接長度 (固定)
                 </Label>
                 <span className={cn("text-sm", theme === "dark" ? "text-[#f8f8f2]" : "text-gray-500")}>
-                  {settings.linkDistance}
+                  {settings.linkLength}
                 </span>
               </div>
               <Slider
-                id="linkDistance"
-                min={0}
+                id="linkLength"
+                min={50}
                 max={200}
                 step={5}
-                value={[settings.linkDistance]}
-                onValueChange={(value) => updateSetting("linkDistance", value[0])}
+                value={[settings.linkLength]}
+                onValueChange={(value) => updateSetting("linkLength", value[0])}
               />
             </div>
             <div className="space-y-2">
@@ -151,11 +151,11 @@ export default function SettingsPanel({ settings, onSettingsChange }: SettingsPa
           </div>
 
           <div className="space-y-4">
-            <h3 className={cn("font-medium", theme === "dark" ? "text-[#f8f8f2]" : "")}>物理模擬設置</h3>
+            <h3 className={cn("font-medium", theme === "dark" ? "text-[#f8f8f2]" : "")}>節點排列</h3>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="repulsionStrength" className={theme === "dark" ? "text-[#f8f8f2]" : ""}>
-                  排斥力
+                  節點間排斥力
                 </Label>
                 <span className={cn("text-sm", theme === "dark" ? "text-[#f8f8f2]" : "text-gray-500")}>
                   {settings.repulsionStrength}
@@ -168,60 +168,6 @@ export default function SettingsPanel({ settings, onSettingsChange }: SettingsPa
                 step={10}
                 value={[settings.repulsionStrength]}
                 onValueChange={(value) => updateSetting("repulsionStrength", value[0])}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="friction" className={theme === "dark" ? "text-[#f8f8f2]" : ""}>
-                  摩擦係數
-                </Label>
-                <span className={cn("text-sm", theme === "dark" ? "text-[#f8f8f2]" : "text-gray-500")}>
-                  {settings.friction}
-                </span>
-              </div>
-              <Slider
-                id="friction"
-                min={0.05}
-                max={0.9}
-                step={0.05}
-                value={[settings.friction]}
-                onValueChange={(value) => updateSetting("friction", value[0])}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="alpha" className={theme === "dark" ? "text-[#f8f8f2]" : ""}>
-                  初始溫度
-                </Label>
-                <span className={cn("text-sm", theme === "dark" ? "text-[#f8f8f2]" : "text-gray-500")}>
-                  {settings.alpha}
-                </span>
-              </div>
-              <Slider
-                id="alpha"
-                min={0.1}
-                max={1}
-                step={0.05}
-                value={[settings.alpha]}
-                onValueChange={(value) => updateSetting("alpha", value[0])}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="alphaDecay" className={theme === "dark" ? "text-[#f8f8f2]" : ""}>
-                  溫度衰減
-                </Label>
-                <span className={cn("text-sm", theme === "dark" ? "text-[#f8f8f2]" : "text-gray-500")}>
-                  {settings.alphaDecay}
-                </span>
-              </div>
-              <Slider
-                id="alphaDecay"
-                min={0.001}
-                max={0.1}
-                step={0.001}
-                value={[settings.alphaDecay]}
-                onValueChange={(value) => updateSetting("alphaDecay", value[0])}
               />
             </div>
           </div>

@@ -148,10 +148,13 @@ export default function SearchBar({ nodes, onNodeSelect }: SearchBarProps) {
                         <span className="font-medium">{node.name || node.ip_addr}</span>
                         {node.name && <span className="text-xs text-muted-foreground">{node.ip_addr}</span>}
                         {node.domains && node.domains.length > 0 && (
-                          <span className="text-xs text-muted-foreground truncate">
-                            {node.domains[0]}
-                            {node.domains.length > 1 ? ` +${node.domains.length - 1}` : ""}
-                          </span>
+                          <div className="text-xs text-muted-foreground max-h-16 overflow-y-auto">
+                            {node.domains.map((domain, index) => (
+                              <div key={index} className="truncate">
+                                {domain}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </CommandItem>

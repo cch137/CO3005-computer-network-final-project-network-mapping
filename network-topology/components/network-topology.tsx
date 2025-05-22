@@ -33,6 +33,7 @@ export default function NetworkTopology({
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null)
   const graphNodesRef = useRef<any[]>([])
   const previousSelectedNodeRef = useRef<string | null>(null)
+  const isSimulationStabilizedRef = useRef<boolean>(false)
 
   // References to D3 selections for updates
   const nodeGroupRef = useRef<d3.Selection<any, any, any, any> | null>(null)
@@ -113,11 +114,7 @@ export default function NetworkTopology({
     const width = containerRef.current?.clientWidth || 1000
     const height = containerRef.current?.clientHeight || 800
 
-    // Get the current transform
-    const currentTransform = d3.zoomTransform(svg.node() as Element)
-
     // Calculate the exact position to center the node
-    // We need to account for any existing transform
     const scale = 2 // Zoom level
     const x = width / 2 - nodeData.x * scale
     const y = height / 2 - nodeData.y * scale
@@ -129,6 +126,36 @@ export default function NetworkTopology({
     svg.transition().duration(750).call(zoomRef.current.transform, newTransform)
   }
 
+  // Custom force function to enforce fixed link lengths
+  const createFixedLinkLengthForce = (links: any[], length: number) => {
+    return () => {
+      for (let i = 0; i < links.length; i++) {
+        const link = links[i]
+        if (!link.source || !link.target) continue
+
+        // Calculate current link length
+        const dx = link.target.x - link.source.x
+        const dy = link.target.y - link.source.y
+        const currentLength = Math.sqrt(dx * dx + dy * dy)
+
+        if (currentLength === 0) continue // Avoid division by zero
+
+        // Calculate the displacement needed to achieve fixed length
+        const displacement = ((length - currentLength) / currentLength) * 0.5
+
+        // Move both nodes to maintain fixed length
+        const moveX = dx * displacement
+        const moveY = dy * displacement
+
+        // If nodes are not fixed (being dragged), adjust their positions
+        if (!link.source.fx) link.source.x -= moveX
+        if (!link.source.fy) link.source.y -= moveY
+        if (!link.target.fx) link.target.x += moveX
+        if (!link.target.fy) link.target.y += moveY
+      }
+    }
+  }
+
   // Initial graph creation - only runs once when nodes change
   useEffect(() => {
     if (!svgRef.current || !containerRef.current || nodes.length === 0) return
@@ -136,6 +163,7 @@ export default function NetworkTopology({
     // Clear previous visualization
     d3.select(svgRef.current).selectAll("*").remove()
     graphInitializedRef.current = false
+    isSimulationStabilizedRef.current = false
 
     const width = containerRef.current.clientWidth
     const height = containerRef.current.clientHeight
@@ -166,6 +194,7 @@ export default function NetworkTopology({
     graphNodesRef.current = graph.nodes
 
     // Create a force simulation with settings
+    // Use very low alphaDecay and alphaMin to ensure simulation runs longer and reaches equilibrium
     const sim = d3
       .forceSimulation(graph.nodes as d3.SimulationNodeDatum[])
       .force(
@@ -173,7 +202,8 @@ export default function NetworkTopology({
         d3
           .forceLink(graph.links)
           .id((d: any) => d?.id || "")
-          .distance(settings.linkDistance),
+          .distance(settings.linkLength)
+          .strength(1), // Set to 1 for fixed link lengths
       )
       .force("charge", d3.forceManyBody().strength(settings.repulsionStrength))
       .force("center", d3.forceCenter(width / 2, height / 2))
@@ -181,9 +211,9 @@ export default function NetworkTopology({
         "collision",
         d3.forceCollide().radius((d: any) => (d?.size || settings.nodeSize) * 1.2),
       )
-      .velocityDecay(settings.friction)
-      .alpha(settings.alpha)
-      .alphaDecay(settings.alphaDecay)
+      .alphaDecay(0.005) // Much lower decay to allow simulation to run longer
+      .alphaMin(0.001) // Lower minimum alpha to ensure better equilibrium
+      .alpha(1) // Start with full energy
 
     simulationRef.current = sim
 
@@ -226,6 +256,9 @@ export default function NetworkTopology({
       .text((d: any) => d?.id || "")
 
     labelsRef.current = labels
+
+    // Create fixed link length force
+    const fixedLinkLengthForce = createFixedLinkLengthForce(graph.links, settings.linkLength)
 
     // Add event handlers to node groups
     nodeGroup
@@ -301,9 +334,11 @@ export default function NetworkTopology({
           .drag<any, any>()
           .on("start", (event, d) => {
             if (!d) return // Guard against undefined data
-            if (!event.active && simulationRef.current) simulationRef.current.alphaTarget(0.3).restart()
-            d.fx = d.x
-            d.fy = d.y
+            if (!event.active && simulationRef.current) {
+              // Don't restart the whole simulation, just fix this node
+              d.fx = d.x
+              d.fy = d.y
+            }
           })
           .on("drag", (event, d) => {
             if (!d) return // Guard against undefined data
@@ -312,26 +347,37 @@ export default function NetworkTopology({
           })
           .on("end", (event, d) => {
             if (!d) return // Guard against undefined data
-            if (!event.active && simulationRef.current) simulationRef.current.alphaTarget(0)
+            // Release the node when drag ends
             d.fx = null
             d.fy = null
           }),
       )
 
-    // Update positions on each tick
+    // Update positions on each tick with fixed link lengths
     sim.on("tick", () => {
+      // Apply fixed link length force
+      fixedLinkLengthForce()
+
+      // Update link positions
       link
         .attr("x1", (d: any) => d.source?.x || 0)
         .attr("y1", (d: any) => d.source?.y || 0)
         .attr("x2", (d: any) => d.target?.x || 0)
         .attr("y2", (d: any) => d.target?.y || 0)
 
+      // Update node positions
       nodeGroup.attr("transform", (d: any) => {
         if (!d || typeof d.x !== "number" || typeof d.y !== "number") {
           return "translate(0,0)" // Fallback for invalid data
         }
         return `translate(${d.x},${d.y})`
       })
+    })
+
+    // Monitor simulation progress and mark as stabilized when it reaches equilibrium
+    sim.on("end", () => {
+      isSimulationStabilizedRef.current = true
+      console.log("Simulation has reached equilibrium")
     })
 
     // Handle window resize
@@ -342,8 +388,13 @@ export default function NetworkTopology({
 
       svg.attr("width", newWidth).attr("height", newHeight).attr("viewBox", [0, 0, newWidth, newHeight])
 
+      // Update center force but don't restart simulation unless necessary
       sim.force("center", d3.forceCenter(newWidth / 2, newHeight / 2))
-      sim.alpha(0.3).restart()
+
+      // Only restart if simulation has already stabilized
+      if (isSimulationStabilizedRef.current) {
+        sim.alpha(0.3).restart()
+      }
     }
 
     window.addEventListener("resize", handleResize)
@@ -585,26 +636,45 @@ export default function NetworkTopology({
       }
     }
 
+    // Create a new fixed link length force
+    const links = simulation.force("link").links()
+    const fixedLinkLengthForce = createFixedLinkLengthForce(links, settings.linkLength)
+
     // Update simulation forces
     simulation
-      .force("link", d3.forceLink(simulation.force("link").links()).distance(settings.linkDistance))
+      .force("link", d3.forceLink(links).distance(settings.linkLength).strength(1)) // Set to 1 for fixed link lengths
       .force("charge", d3.forceManyBody().strength(settings.repulsionStrength))
       .force(
         "collision",
         d3.forceCollide().radius((d: any) => (d?.size || settings.nodeSize) * 1.2),
       )
-      .velocityDecay(settings.friction)
-      .alpha(settings.alpha)
-      .alphaDecay(settings.alphaDecay)
-      .alphaTarget(0.3)
-      .restart()
 
-    // Let the simulation run for a bit then stop it
-    setTimeout(() => {
-      if (simulationRef.current) {
-        simulationRef.current.alphaTarget(0)
-      }
-    }, 300)
+    // Update the tick function to use the new fixed link length force
+    simulation.on("tick", null) // Clear existing tick handler
+    simulation.on("tick", () => {
+      // Apply fixed link length force
+      fixedLinkLengthForce()
+
+      // Update link positions
+      link
+        .attr("x1", (d: any) => d.source?.x || 0)
+        .attr("y1", (d: any) => d.source?.y || 0)
+        .attr("x2", (d: any) => d.target?.x || 0)
+        .attr("y2", (d: any) => d.target?.y || 0)
+
+      // Update node positions
+      nodeGroup.attr("transform", (d: any) => {
+        if (!d || typeof d.x !== "number" || typeof d.y !== "number") {
+          return "translate(0,0)" // Fallback for invalid data
+        }
+        return `translate(${d.x},${d.y})`
+      })
+    })
+
+    // Only restart simulation if settings have changed significantly
+    // Use a higher alpha to ensure changes take effect
+    isSimulationStabilizedRef.current = false
+    simulation.alpha(0.5).restart()
   }, [settings, nodeMap, hoveredNode, hoveredNeighbors, selectedNode])
 
   return (
